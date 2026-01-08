@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -102,10 +103,10 @@ func (tm *tunnelManager) removeReverseTunnel(username string, port uint32) {
 	}
 }
 
-func handleChannel(newChannel ssh.NewChannel, username string, tm *tunnelManager, conn *ssh.ServerConn) {
+func handleChannel(newChannel ssh.NewChannel, username string, tm *tunnelManager, conn *ssh.ServerConn, port int) {
 	switch newChannel.ChannelType() {
 	case "session":
-		handleSessionChannel(newChannel, username)
+		handleSessionChannel(newChannel, username, port)
 	case "direct-tcpip":
 		handleForwardTunnel(newChannel, username, tm)
 	default:
@@ -113,7 +114,7 @@ func handleChannel(newChannel ssh.NewChannel, username string, tm *tunnelManager
 	}
 }
 
-func handleSessionChannel(newChannel ssh.NewChannel, username string) {
+func handleSessionChannel(newChannel ssh.NewChannel, username string, port int) {
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
 		return
@@ -126,7 +127,11 @@ func handleSessionChannel(newChannel ssh.NewChannel, username string) {
 				req.Reply(false, nil)
 			case "shell":
 				req.Reply(true, nil)
-				instructions := fmt.Sprintf("SSH Tunnel Redirector\n\nUsername: %s\n\nTo create a reverse tunnel:\n  ssh -R 0:localhost:PORT %s@HOST -p 2222\n\nTo create a forward tunnel:\n  ssh -L LOCAL_PORT:localhost:REMOTE_PORT %s@HOST -p 2222\n\nPress Ctrl+C to exit.\n", username, username, username)
+				portFlag := ""
+				if port != 22 {
+					portFlag = fmt.Sprintf(" -p %d", port)
+				}
+				instructions := fmt.Sprintf("SSH Tunnel Redirector\n\nUsername: %s\n\nTo create a reverse tunnel:\n  ssh -R 0:localhost:PORT %s@HOST%s\n\nTo create a forward tunnel:\n  ssh -L LOCAL_PORT:localhost:REMOTE_PORT %s@HOST%s\n\nPress Ctrl+C to exit.\n", username, username, portFlag, username, portFlag)
 				channel.Write([]byte(instructions))
 			case "signal":
 				req.Reply(true, nil)
@@ -227,7 +232,7 @@ func handleForwardTunnel(newChannel ssh.NewChannel, username string, tm *tunnelM
 	io.Copy(reverseChannel, channel)
 }
 
-func handleConnection(conn net.Conn, config *ssh.ServerConfig, tm *tunnelManager) {
+func handleConnection(conn net.Conn, config *ssh.ServerConfig, tm *tunnelManager, port int) {
 	defer conn.Close()
 
 	serverConn, chans, reqs, err := ssh.NewServerConn(conn, config)
@@ -259,7 +264,7 @@ func handleConnection(conn net.Conn, config *ssh.ServerConfig, tm *tunnelManager
 
 	for newChannel := range chans {
 		log.Printf("[connection] New channel type: %s from %s", newChannel.ChannelType(), username)
-		go handleChannel(newChannel, username, tm, serverConn)
+		go handleChannel(newChannel, username, tm, serverConn, port)
 	}
 	log.Printf("[connection] Channel stream closed for %s", username)
 }
@@ -293,6 +298,9 @@ func handleTcpipForward(req *ssh.Request, username string, tm *tunnelManager, co
 }
 
 func main() {
+	port := flag.Int("port", 2222, "SSH server listening port")
+	flag.Parse()
+
 	config := &ssh.ServerConfig{
 		NoClientAuth: true,
 	}
@@ -311,13 +319,14 @@ func main() {
 
 	tm := newTunnelManager()
 
-	listener, err := net.Listen("tcp", ":2222")
+	addr := fmt.Sprintf(":%d", *port)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		log.Fatalf("Failed to listen on :2222: %v", err)
+		log.Fatalf("Failed to listen on %s: %v", addr, err)
 	}
 	defer listener.Close()
 
-	log.Println("SSH tunnel redirector listening on :2222")
+	log.Printf("SSH tunnel redirector listening on %s", addr)
 
 	for {
 		conn, err := listener.Accept()
@@ -326,7 +335,7 @@ func main() {
 			continue
 		}
 
-		go handleConnection(conn, config, tm)
+		go handleConnection(conn, config, tm, *port)
 	}
 }
 
