@@ -131,7 +131,7 @@ func handleSessionChannel(newChannel ssh.NewChannel, username string, port int) 
 				if port != 22 {
 					portFlag = fmt.Sprintf(" -p %d", port)
 				}
-				instructions := fmt.Sprintf("SSH Tunnel Redirector\n\nUsername: %s\n\nTo create a reverse tunnel:\n  ssh -R 0:localhost:PORT %s@HOST%s\n\nTo create a forward tunnel:\n  ssh -L LOCAL_PORT:localhost:REMOTE_PORT %s@HOST%s\n\nPress Ctrl+C to exit.\n", username, username, portFlag, username, portFlag)
+				instructions := fmt.Sprintf("SSH Tunnel Redirector\n\nUsername: %s\n\nTo create a reverse tunnel:\n  ssh -R LOCAL_PORT:localhost:PORT %s@HOST%s\n\nTo create a forward tunnel:\n  ssh -L LOCAL_PORT:localhost:REMOTE_PORT %s@HOST%s\n\nPress Ctrl+C to exit.\n", username, username, portFlag, username, portFlag)
 				channel.Write([]byte(instructions))
 			case "signal":
 				req.Reply(true, nil)
